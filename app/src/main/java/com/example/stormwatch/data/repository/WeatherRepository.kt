@@ -1,15 +1,12 @@
 package com.example.stormwatch.data.repository
 
 import com.example.stormwatch.data.model.WeatherReport
+import com.example.stormwatch.data.model.domain.WeatherForecast
+import com.example.stormwatch.data.model.domain.toDomain
+import com.example.stormwatch.data.remote.WeatherApi
 
-class ReportRepository {
-    fun getWeatherReport(): WeatherReport{
-        return WeatherReport(
-            city = "Beograd",
-            temperature = 24.5,
-            description = "Delimicno oblacno",
-            windSpeed = 5.2,
-            humidity = 60
-        )
+class WeatherRepository(private val api: WeatherApi) {
+    suspend fun getForecast(city: String): WeatherForecast{
+        return api.getWeatherByCity(city,"e38c61f6c3f881aff4c3a63ba5ed1426").toDomain()
     }
 }
