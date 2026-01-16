@@ -1,6 +1,6 @@
 package com.example.stormwatch.data.repository
 
-import com.example.stormwatch.data.model.WeatherReport
+
 import com.example.stormwatch.data.model.domain.WeatherForecast
 import com.example.stormwatch.data.model.domain.toDomain
 import com.example.stormwatch.data.remote.WeatherApi

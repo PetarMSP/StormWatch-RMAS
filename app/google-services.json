@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "231790321972",
+    "project_id": "stormwatch-appv1",
+    "storage_bucket": "stormwatch-appv1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:231790321972:android:277bcca51d63d72e0a4561",
+        "android_client_info": {
+          "package_name": "com.example.stormwatch"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmZ6kfsym3Wtn8QMnkHzr8RxrVvh3OPus"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
