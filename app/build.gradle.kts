@@ -45,6 +45,8 @@ android {
 }
 
 dependencies {
+    //ICONS
+    implementation("androidx.compose.material:material-icons-extended")
 
     //FIREBASE
     implementation(platform(libs.firebase.bom))
@@ -52,6 +54,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.storage)
 
     //NETWORK
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
@@ -59,9 +62,10 @@ dependencies {
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     kapt("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     //NAVIGATION
-    implementation("androidx.navigation:navigation-compose:2.8.4")
+    implementation("androidx.navigation:navigation-compose:2.9.6")
 
     //COMPOSE
     implementation(libs.androidx.core.ktx)

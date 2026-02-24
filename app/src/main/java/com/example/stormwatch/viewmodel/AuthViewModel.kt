@@ -1,5 +1,6 @@
 package com.example.stormwatch.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stormwatch.data.repository.AuthRepository
@@ -18,34 +19,35 @@ class AuthViewModel : ViewModel() {
     private val _currentUserId = MutableStateFlow(repository.currentUserId())
     val currentUserId: StateFlow<String?> = _currentUserId
 
-    fun login(email: String, password: String){
+    fun login(email: String, password: String) {
         viewModelScope.launch {
             val result = repository.login(email, password)
             _authState.value = result
-            if(result is AuthResult.Success){
+            if (result is AuthResult.Success) {
                 _currentUserId.value = repository.currentUserId()
             }
         }
     }
 
-    fun register(email: String, password: String){
+    fun register(username: String, email: String, password: String, photoUri: Uri?) {
         viewModelScope.launch {
-            val result = repository.signUp(email, password)
+            _authState.value = null
+            val result = repository.signUpWithProfile(username, email, password, photoUri)
             _authState.value = result
-            if(result is AuthResult.Success){
+            if (result is AuthResult.Success) {
                 _currentUserId.value = repository.currentUserId()
             }
         }
     }
 
-    fun logout(){
+    fun logout() {
         viewModelScope.launch {
             repository.logout()
             _currentUserId.value = null
         }
     }
 
-    fun resetAuthState(){
+    fun resetAuthState() {
         _authState.value = null
     }
 }
