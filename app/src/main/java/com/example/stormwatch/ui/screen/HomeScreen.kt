@@ -1,39 +1,55 @@
 package com.example.stormwatch.ui.screen
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.core.content.ContextCompat
 import com.example.stormwatch.data.model.LocalWeatherReport
 import com.example.stormwatch.data.model.WeatherParameter
+import com.example.stormwatch.data.model.floorToHour
 import com.example.stormwatch.data.model.domain.DailyForecast
 import com.example.stormwatch.data.model.domain.HourlyForecast
+import com.example.stormwatch.data.model.domain.UserProfile
+import com.example.stormwatch.util.LocationService
 import com.example.stormwatch.util.isSameDay
 import com.example.stormwatch.viewmodel.MainViewModel
-import java.util.Calendar
-
-private fun floorToHour(ts: Long): Long {
-    val cal = Calendar.getInstance().apply { timeInMillis = ts }
-    cal.set(Calendar.MINUTE, 0)
-    cal.set(Calendar.SECOND, 0)
-    cal.set(Calendar.MILLISECOND, 0)
-    return cal.timeInMillis
-}
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.CameraPositionState
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.rememberCameraPositionState
+import kotlinx.coroutines.delay
 
 private fun isInNext24HoursByHour(ts: Long, nowTs: Long): Boolean {
     val start = floorToHour(nowTs)
@@ -45,14 +61,66 @@ private fun isInNext24HoursByHour(ts: Long, nowTs: Long): Boolean {
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
-    onOpenReport: (String) -> Unit
+    onOpenReport: (String) -> Unit,
+    onOpenMap: () -> Unit,
+    onCreateReport: (selectedHourTimestamp: Long) -> Unit
 ) {
+    val context = LocalContext.current
+
     val weather by viewModel.weather.collectAsState()
     val localReports by viewModel.localReports.collectAsState()
 
     var selectedDay by remember { mutableStateOf<DailyForecast?>(null) }
     var selectedHour by remember { mutableStateOf<HourlyForecast?>(null) }
 
+    // CLOCK TICK (da se osvežava sat i “next 24h”)
+    val timeNow by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            delay(30_000)
+            value = System.currentTimeMillis()
+        }
+    }
+
+    fun hasLocationPermission(ctx: Context): Boolean {
+        val fine = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    var locationGranted by remember { mutableStateOf(hasLocationPermission(context)) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val fine = result[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarse = result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        locationGranted = fine || coarse
+    }
+
+    LaunchedEffect(Unit) {
+        if (!locationGranted) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    // ======= LIVE LOCATION =======
+    val locationService = remember { LocationService(context) }
+    var myLocation by remember { mutableStateOf<Location?>(null) }
+
+    LaunchedEffect(locationGranted) {
+        if (!locationGranted) return@LaunchedEffect
+        locationService.locationUpdates().collect { loc ->
+            myLocation = loc
+            viewModel.setUserLocation(loc) // ✅ ovde ide
+        }
+    }
+
+    // ======= BACKGROUND =======
     val backgroundGradient = when {
         weather?.current?.condition?.contains("Rain", true) == true ->
             Brush.verticalGradient(listOf(Color(0xFF203A43), Color(0xFF2C5364)))
@@ -61,24 +129,17 @@ fun HomeScreen(
         else ->
             Brush.verticalGradient(listOf(Color(0xFF2193b0), Color(0xFF6dd5ed)))
     }
-    val timeNow by produceState(initialValue = System.currentTimeMillis()) {
-        while (true) {
-            kotlinx.coroutines.delay(60_000)
-            value = System.currentTimeMillis()
-        }
-    }
 
-    // Default: danas + trenutni sat
-    LaunchedEffect(weather) {
+    LaunchedEffect(weather, timeNow) {
         val data = weather ?: return@LaunchedEffect
         val nowTs = timeNow
         val nowHourTs = floorToHour(nowTs)
 
         selectedDay = data.daily.firstOrNull { isSameDay(it.date, nowTs) } ?: data.daily.firstOrNull()
 
-        val today = selectedDay
+        val day = selectedDay
         val hoursThatDay = data.hourly
-            .filter { h -> today != null && isSameDay(h.timestamp, today.date) }
+            .filter { h -> day != null && isSameDay(h.timestamp, day.date) }
             .sortedBy { it.timestamp }
             .take(24)
 
@@ -86,11 +147,9 @@ fun HomeScreen(
             ?: hoursThatDay.firstOrNull()
     }
 
-    // 24h za selektovani dan
     val hoursForSelectedDay24 = remember(weather, selectedDay) {
         val data = weather ?: return@remember emptyList()
         val day = selectedDay ?: return@remember emptyList()
-
         data.hourly
             .filter { isSameDay(it.timestamp, day.date) }
             .sortedBy { it.timestamp }
@@ -99,15 +158,14 @@ fun HomeScreen(
 
     val hasHourlyForDay = hoursForSelectedDay24.isNotEmpty()
 
-    // reportovi samo ako izabrani sat upada u "sada..+24h" i samo za taj sat
-    val reportsForSelectedHour = remember(localReports, selectedHour, hasHourlyForDay) {
+
+    val reportsForSelectedHour = remember(localReports, selectedHour, hasHourlyForDay, timeNow) {
         if (!hasHourlyForDay) return@remember emptyList()
 
-        val nowTs = timeNow
         val selectedTs = selectedHour?.timestamp ?: return@remember emptyList()
         val selectedHourTs = floorToHour(selectedTs)
 
-        if (!isInNext24HoursByHour(selectedHourTs, nowTs)) return@remember emptyList()
+        if (!isInNext24HoursByHour(selectedHourTs, timeNow)) return@remember emptyList()
 
         localReports.filter { r ->
             val startHour = floorToHour(r.startTime)
@@ -116,11 +174,25 @@ fun HomeScreen(
         }
     }
 
-    val canAddReport = remember(selectedHour, hasHourlyForDay) {
+    val canAddReport = remember(selectedHour, hasHourlyForDay, timeNow) {
         if (!hasHourlyForDay) return@remember false
-        val nowTs = timeNow
         val ts = selectedHour?.timestamp ?: return@remember false
-        isInNext24HoursByHour(floorToHour(ts), nowTs)
+        isInNext24HoursByHour(floorToHour(ts), timeNow)
+    }
+
+
+    val bigMapCamera = rememberCameraPositionState()
+    var mapCameraInitialized by remember { mutableStateOf(false) }
+
+    LaunchedEffect(myLocation) {
+        val loc = myLocation ?: return@LaunchedEffect
+        if (!mapCameraInitialized) {
+            bigMapCamera.position = CameraPosition.fromLatLngZoom(
+                LatLng(loc.latitude, loc.longitude),
+                13f
+            )
+            mapCameraInitialized = true
+        }
     }
 
     Box(
@@ -140,30 +212,15 @@ fun HomeScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = { /* otvori settings meni */ }) {
+                        IconButton(onClick = onOpenMap) {
+                            Icon(Icons.Default.Map, contentDescription = "Mapa", tint = Color.White)
+                        }
+                        IconButton(onClick = { /* settings */ }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
-            },
-            floatingActionButton = {
-                if (canAddReport) {
-                    FloatingActionButton(
-                        onClick = {
-                            viewModel.addLocalReport(
-                                lat = 43.23,
-                                lon = 21.59,
-                                parameter = WeatherParameter.RAIN,
-                                duration = 3,
-                                description = "Report za ${selectedHour?.hour ?: "?"}:00"
-                            )
-                        },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Report")
-                    }
-                }
             }
         ) { padding ->
 
@@ -174,7 +231,7 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.Start
             ) {
 
-                // Header (grad/temp/condition) - levo
+
                 weather?.let { data ->
                     item {
                         Column(
@@ -189,7 +246,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // DAILY
+                    // ======= DAILY =======
                     item {
                         Text(
                             "Daily",
@@ -217,8 +274,9 @@ fun HomeScreen(
                         )
                     }
 
-                    // HOURLY + LOCAL REPORTS samo ako ima hourly za taj dan
+                    // ======= HOURLY + LOCAL REPORTS =======
                     if (hasHourlyForDay) {
+
                         item {
                             Text(
                                 "Hourly",
@@ -237,59 +295,153 @@ fun HomeScreen(
                             )
                         }
 
-                        if (canAddReport) {
-                            item {
-                                Text(
-                                    "Local Reports",
-                                    modifier = Modifier
-                                        .padding(16.dp)
-                                        .fillMaxWidth(),
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
+                        // LOCAL REPORTS SECTION
+                        item {
+                            Text(
+                                "Local Reports",
+                                modifier = Modifier
+                                    .padding(16.dp)
+                                    .fillMaxWidth(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
-                                Surface(
-                                    modifier = Modifier
-                                        .padding(horizontal = 16.dp)
-                                        .height(250.dp)
-                                        .fillMaxWidth(),
-                                    color = Color.White.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    if (reportsForSelectedHour.isEmpty()) {
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                "Nema reporta za ovaj sat",
-                                                color = Color.White.copy(alpha = 0.5f)
-                                            )
-                                        }
-                                    } else {
-                                        val scrollState = rememberScrollState()
-
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .verticalScroll(scrollState)
-                                                .padding(10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            reportsForSelectedHour.forEach { report ->
-                                                ReportListItem(report = report, onClick = {
-                                                   onOpenReport(report.id)
-                                                })
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        item {
+                            LocalReportsBox(
+                                canAddReport = canAddReport,
+                                onAdd = {
+                                    val ts = selectedHour?.timestamp ?: return@LocalReportsBox
+                                    onCreateReport(ts) // ✅ vodi na create screen
+                                },
+                                reportsForSelectedHour = reportsForSelectedHour,
+                                onOpenReport = onOpenReport
+                            )
                         }
                     }
                 }
 
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Mapa reportova",
+                        modifier = Modifier.padding(start = 16.dp, bottom = 10.dp),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                item {
+                    ReportsPreviewMap(
+                        localReports = localReports,
+                        locationGranted = locationGranted,
+                        cameraState = bigMapCamera,
+                        onOpenMap = onOpenMap
+                    )
+                }
+                item {
+                    val users by viewModel.allUsers.collectAsState()
+                    WeeklyLeaderboard(users = users)
+                }
                 item { Spacer(Modifier.height(70.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalReportsBox(
+    canAddReport: Boolean,
+    onAdd: () -> Unit,
+    reportsForSelectedHour: List<LocalWeatherReport>,
+    onOpenReport: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .height(250.dp)
+            .fillMaxWidth(),
+        color = Color.White.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Box(Modifier.fillMaxSize()) {
+
+            if (canAddReport) {
+                IconButton(
+                    onClick = onAdd,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Dodaj", tint = Color.White)
+                }
+            }
+
+            if (reportsForSelectedHour.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Nema reporta za ovaj sat",
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 40.dp),
+                    contentPadding = PaddingValues(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(reportsForSelectedHour) { report ->
+                        ReportListItem(
+                            report = report,
+                            onClick = { onOpenReport(report.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportsPreviewMap(
+    localReports: List<LocalWeatherReport>,
+    locationGranted: Boolean,
+    cameraState: CameraPositionState,
+    onOpenMap: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .height(260.dp)
+            .clickable { onOpenMap() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.15f))
+    ) {
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraState,
+            properties = MapProperties(isMyLocationEnabled = locationGranted),
+            uiSettings = MapUiSettings(
+                myLocationButtonEnabled = true,
+                zoomControlsEnabled = false,
+                scrollGesturesEnabled = false,
+                zoomGesturesEnabled = false,
+                rotationGesturesEnabled = false,
+                tiltGesturesEnabled = false
+            )
+        ) {
+            localReports.forEach { r ->
+                Marker(
+                    state = MarkerState(LatLng(r.latitude, r.longitude)),
+                    title = r.parametar.toString(),
+                    snippet = r.description.take(60)
+                )
             }
         }
     }
@@ -399,6 +551,12 @@ fun ReportListItem(
     report: LocalWeatherReport,
     onClick: () -> Unit
 ) {
+    val prikazniParametar = if (report.parametar == WeatherParameter.OTHER && !report.customParameterName.isNullOrBlank()) {
+        report.customParameterName
+    } else {
+        report.parametar.name
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -410,26 +568,44 @@ fun ReportListItem(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // LEVO: text
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Parametar: ${report.parametar}", color = Color.White, fontWeight = FontWeight.Bold)
-                Text("Trajanje: ${report.durationHours}h", color = Color.White.copy(alpha = 0.85f))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Tip: $prikazniParametar",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+
+                Text(
+                    text = "Trajanje: ${report.durationHours}h",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 14.sp
+                )
+
+                Spacer(Modifier.height(4.dp))
+
                 Text(
                     report.description,
-                    color = Color.White,
+                    color = Color.White.copy(alpha = 0.9f),
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 14.sp
                 )
-                Spacer(Modifier.height(6.dp))
-                Text("👍 ${report.likes}   👎 ${report.dislikes}", color = Color.White.copy(alpha = 0.9f))
+
+                Spacer(Modifier.height(8.dp))
+
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("👍 ${report.likes}", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("👎 ${report.dislikes}", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                }
             }
 
             Spacer(Modifier.width(10.dp))
 
-            // DESNO: mini mapa (za sada placeholder)
-            MiniMapPlaceholder(
+
+            MiniMap(
                 lat = report.latitude,
                 lon = report.longitude
             )
@@ -438,14 +614,75 @@ fun ReportListItem(
 }
 
 @Composable
-fun MiniMapPlaceholder(lat: Double, lon: Double) {
-    Surface(
-        modifier = Modifier.size(width = 90.dp, height = 100.dp),
-        color = Color.White.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(6.dp)
+fun MiniMap(lat: Double, lon: Double) {
+    val cameraState: CameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(LatLng(lat, lon), 14f)
+    }
+
+    Card(
+        modifier = Modifier
+            .width(120.dp)
+            .height(90.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.12f))
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text("MAP", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraState,
+            properties = MapProperties(isMyLocationEnabled = false),
+            uiSettings = MapUiSettings(
+                zoomControlsEnabled = false,
+                myLocationButtonEnabled = false,
+                scrollGesturesEnabled = false,
+                zoomGesturesEnabled = false,
+                rotationGesturesEnabled = false,
+                tiltGesturesEnabled = false
+            )
+        ) {
+            Marker(state = MarkerState(LatLng(lat, lon)))
+        }
+    }
+}
+
+@Composable
+fun WeeklyLeaderboard(users: List<UserProfile>) {
+    val sortedUsers = users.sortedByDescending { it.weeklyScore }.take(10)
+
+    Surface(
+        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+        color = Color.White.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Weekly Leaderboard 🏆", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(12.dp))
+
+            sortedUsers.forEachIndexed { index, user ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Medalja ili Rank
+                    val badge = when(index) {
+                        0 -> "🥇"
+                        1 -> "🥈"
+                        2 -> "🥉"
+                        else -> "${index + 1}."
+                    }
+                    Text(badge, modifier = Modifier.width(30.dp), color = Color.White)
+
+                    Text(user.username, color = Color.White, modifier = Modifier.weight(1f))
+
+                    Text(
+                        "${user.weeklyScore} pts",
+                        color = Color.Yellow,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (index < sortedUsers.size - 1) {
+                    Divider(color = Color.White.copy(0.1f))
+                }
+            }
         }
     }
 }

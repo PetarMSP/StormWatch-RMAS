@@ -13,6 +13,10 @@ object Routes {
     const val LOGIN = "login"
     const val REGISTER = "register"
     const val HOME = "home"
+    const val MAP = "map"
+
+    const val REPORT_CREATE = "reportCreate"
+    fun reportCreate(timestamp: Long) = "$REPORT_CREATE/$timestamp"
 
     const val REPORT_DETAIL = "reportDetail"
     fun reportDetail(reportId: String) = "$REPORT_DETAIL/$reportId"
@@ -20,7 +24,6 @@ object Routes {
 
 @Composable
 fun AppNavigation(mainViewModel: MainViewModel, authViewModel: AuthViewModel) {
-
     val navController = rememberNavController()
 
     NavHost(
@@ -36,7 +39,38 @@ fun AppNavigation(mainViewModel: MainViewModel, authViewModel: AuthViewModel) {
                 viewModel = mainViewModel,
                 onOpenReport = { reportId ->
                     navController.navigate(Routes.reportDetail(reportId))
+                },
+                onOpenMap = {
+                    navController.navigate(Routes.MAP)
+                },
+                onCreateReport = { timestamp ->
+
+                    navController.navigate(Routes.reportCreate(timestamp))
                 }
+            )
+        }
+
+
+        composable(
+            route = "${Routes.REPORT_CREATE}/{timestamp}",
+            arguments = listOf(navArgument("timestamp") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val timestamp = backStackEntry.arguments?.getLong("timestamp") ?: 0L
+
+            LocalReportCreateScreen(
+                viewModel = mainViewModel,
+                selectedTimestamp = timestamp, // Prosleđujemo dobijeni timestamp
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.MAP) {
+            MapScreen(
+                viewModel = mainViewModel,
+                onOpenReport = { reportId ->
+                    navController.navigate(Routes.reportDetail(reportId))
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -46,12 +80,9 @@ fun AppNavigation(mainViewModel: MainViewModel, authViewModel: AuthViewModel) {
         ) { backStackEntry ->
             val reportId = backStackEntry.arguments?.getString("reportId") ?: return@composable
 
-            androidx.compose.runtime.LaunchedEffect(reportId) {
-                mainViewModel.openReport(reportId)
-            }
-
             LocalReportScreen(
                 viewModel = mainViewModel,
+                reportId = reportId,
                 onBack = { navController.popBackStack() }
             )
         }

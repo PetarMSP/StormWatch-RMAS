@@ -4,6 +4,9 @@ import android.net.Uri
 import com.example.stormwatch.data.model.domain.UserProfile
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 class UserRepository {
@@ -43,6 +46,18 @@ class UserRepository {
     suspend fun getUser(uid: String): UserProfile? {
         val snapshot = usersRef.document(uid).get().await()
         return snapshot.toObject(UserProfile::class.java)
+    }
+    suspend fun getUserByUsername(username: String): UserProfile? {
+        val snapshot = usersRef.whereEqualTo("username", username).get().await()
+        return snapshot.toObjects(UserProfile::class.java).firstOrNull()
+    }
+    fun getUserFlow(uid: String): Flow<UserProfile?> = callbackFlow {
+        val docRef = usersRef.document(uid)
+        val registration = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            trySend(snapshot?.toObject(UserProfile::class.java))
+        }
+        awaitClose { registration.remove() }
     }
 
     suspend fun updatePhoto(uid: String, photoUrl: String) {

@@ -17,6 +17,7 @@ class AuthViewModel : ViewModel() {
     val authState: StateFlow<AuthResult?> = _authState
 
     private val _currentUserId = MutableStateFlow(repository.currentUserId())
+
     val currentUserId: StateFlow<String?> = _currentUserId
 
     fun login(email: String, password: String) {
