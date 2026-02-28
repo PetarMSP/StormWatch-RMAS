@@ -1,6 +1,7 @@
 package com.example.stormwatch.data.repository
 
 import android.net.Uri
+import com.google.firebase.auth.ActionCodeSettings
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -10,7 +11,7 @@ import kotlinx.coroutines.tasks.await
 sealed class AuthResult {
     object Success : AuthResult()
     data class Error(val message: String) : AuthResult()
-
+    object LinkSent : AuthResult()
     data object Loading : AuthResult()
 }
 
@@ -25,6 +26,14 @@ class AuthRepository(
             AuthResult.Success
         } catch (e: Exception) {
             AuthResult.Error(mapFirebaseError(e))
+        }
+    }
+    suspend fun sendSignInLink(email: String, settings: ActionCodeSettings): AuthResult {
+        return try {
+            auth.sendSignInLinkToEmail(email, settings).await()
+            AuthResult.LinkSent
+        } catch (e: Exception) {
+            AuthResult.Error(e.message ?: "Greška pri slanju linka")
         }
     }
     suspend fun signUpWithProfile(
