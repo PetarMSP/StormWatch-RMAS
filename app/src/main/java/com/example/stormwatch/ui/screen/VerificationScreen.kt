@@ -93,7 +93,6 @@ fun VerificationScreen(
             Spacer(Modifier.height(32.dp))
 
             TextButton(onClick = {
-                // Pozivamo ponovno slanje iz ViewModela (moraš imati ovu funkciju)
                 // authViewModel.sendVerificationLink(username, email, pass, photo, context)
             }) {
                 Text("Nije stigao mejl? Pošalji ponovo", color = Color.White)
