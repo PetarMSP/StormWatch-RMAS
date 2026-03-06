@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.stormwatch.LocalIsSerbian
+import com.example.stormwatch.t
 import com.example.stormwatch.data.model.WeatherParameter
 import com.example.stormwatch.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
@@ -30,6 +32,7 @@ fun LocalReportCreateScreen(
     var customTypeName by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
     var durationSliderValue by remember { mutableFloatStateOf(3f) }
+    val isSerbianNow = LocalIsSerbian.current
 
     val currentEndTime = remember(durationSliderValue) {
         selectedTimestamp + (durationSliderValue.toLong() * 3600000L)
@@ -40,8 +43,8 @@ fun LocalReportCreateScreen(
     Box(Modifier.fillMaxSize().background(background)) {
         Column(modifier = Modifier.padding(24.dp).statusBarsPadding()) {
 
-            Text("Novi Izveštaj", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Početak: ${formatTime(selectedTimestamp)}h", color = Color.White.copy(0.7f), fontSize = 14.sp)
+            Text(t(isSerbianNow,"Novi Izveštaj","New Report"), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("${t(isSerbianNow,"Početak:","Start:")} ${formatTime(selectedTimestamp)}h", color = Color.White.copy(0.7f), fontSize = 14.sp)
 
             Spacer(Modifier.height(24.dp))
 
@@ -52,7 +55,7 @@ fun LocalReportCreateScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
 
-                    Text("TIP POJAVE", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
+                    Text(t(isSerbianNow,"TIP POJAVE","Type of Report"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
                     ExposedDropdownMenuBox(
                         expanded = expanded,
                         onExpandedChange = { expanded = !expanded }
@@ -85,7 +88,7 @@ fun LocalReportCreateScreen(
                         OutlinedTextField(
                             value = customTypeName,
                             onValueChange = { customTypeName = it },
-                            placeholder = { Text("Šta ste uočili?", color = Color.White.copy(0.5f)) },
+                            placeholder = { Text(t(isSerbianNow,"Šta ste uočili?","Description of the observation?"), color = Color.White.copy(0.5f)) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -100,7 +103,7 @@ fun LocalReportCreateScreen(
                     Spacer(Modifier.height(24.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("TRAJANJE", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
+                        Text(t(isSerbianNow,"TRAJANJE","Duration"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
                         Spacer(Modifier.weight(1f))
                         Text("${durationSliderValue.toInt()}h", color = Color.Yellow, fontWeight = FontWeight.Bold)
                     }
@@ -118,7 +121,7 @@ fun LocalReportCreateScreen(
                     )
 
                     Text(
-                        "Ističe u: ${formatTime(currentEndTime)}h",
+                        "${t(isSerbianNow, "Ističe u:", "Ends in:")} ${formatTime(currentEndTime)}h",
                         color = Color.White.copy(0.7f),
                         fontSize = 12.sp,
                         modifier = Modifier.align(Alignment.End)
@@ -126,8 +129,7 @@ fun LocalReportCreateScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // OPIS
-                    Text("OPIS (OPCIONO)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
+                    Text(t(isSerbianNow,"OPIS","Description"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.6f))
                     OutlinedTextField(
                         value = description,
                         onValueChange = { description = it },
@@ -162,7 +164,7 @@ fun LocalReportCreateScreen(
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF2193b0))
             ) {
-                Text("OBJAVI", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text(t(isSerbianNow,"OBJAVI","PUBLISH"), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
     }

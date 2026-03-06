@@ -22,22 +22,36 @@ import androidx.compose.ui.unit.sp
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.example.stormwatch.LocalIsSerbian
+import com.example.stormwatch.t
 import com.example.stormwatch.data.model.LocalWeatherReport
 import com.example.stormwatch.data.model.WeatherParameter
+import com.example.stormwatch.data.model.label
 import com.example.stormwatch.viewmodel.MainViewModel
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.maps.android.compose.*
+import kotlin.math.cos
+import kotlin.math.roundToInt
 
 
-private fun distanceMeters(a: LatLng, b: LatLng): Float {
+fun distanceMeters(a: LatLng, b: LatLng): Float {
     val res = FloatArray(1)
     Location.distanceBetween(a.latitude, a.longitude, b.latitude, b.longitude, res)
     return res[0]
 }
 
+private fun boundsForRadius(center: LatLng, radiusMeters: Double): LatLngBounds {
+    val latDelta = radiusMeters / 111_000.0
+    val lngDelta = radiusMeters / (111_000.0 * cos(Math.toRadians(center.latitude)).coerceAtLeast(0.000001))
+    val sw = LatLng(center.latitude - latDelta, center.longitude - lngDelta)
+    val ne = LatLng(center.latitude + latDelta, center.longitude + lngDelta)
+    return LatLngBounds(sw, ne)
+}
 
 private suspend fun loadMarkerIcon(
     context: android.content.Context,
@@ -46,11 +60,7 @@ private suspend fun loadMarkerIcon(
     userName: String
 ): BitmapDescriptor {
     val loader = ImageLoader(context)
-    val request = ImageRequest.Builder(context)
-        .data(url)
-        .allowHardware(false)
-        .build()
-
+    val request = ImageRequest.Builder(context).data(url).allowHardware(false).build()
     val result = (loader.execute(request) as? SuccessResult)?.drawable
     val originalBitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
 
@@ -60,7 +70,6 @@ private suspend fun loadMarkerIcon(
     val canvas = Canvas(output)
     val paint = Paint().apply { isAntiAlias = true }
 
-
     val borderColor = when (parameter) {
         WeatherParameter.RAIN -> android.graphics.Color.parseColor("#1976D2")
         WeatherParameter.SNOW -> android.graphics.Color.parseColor("#B3E5FC")
@@ -69,14 +78,10 @@ private suspend fun loadMarkerIcon(
         else -> android.graphics.Color.RED
     }
 
-
     paint.color = borderColor
     canvas.drawCircle(size / 2f, size / 2f, (imageSize / 2f) + 6, paint)
-
-
     paint.color = android.graphics.Color.WHITE
     canvas.drawCircle(size / 2f, size / 2f, (imageSize / 2f) + 2, paint)
-
 
     val path = Path().apply { addCircle(size / 2f, size / 2f, imageSize / 2f, Path.Direction.CCW) }
     canvas.save()
@@ -85,7 +90,6 @@ private suspend fun loadMarkerIcon(
     if (originalBitmap != null) {
         canvas.drawBitmap(Bitmap.createScaledBitmap(originalBitmap, imageSize, imageSize, false), (size - imageSize) / 2f, (size - imageSize) / 2f, null)
     } else {
-
         paint.color = android.graphics.Color.LTGRAY
         canvas.drawCircle(size / 2f, size / 2f, imageSize / 2f, paint)
         paint.color = android.graphics.Color.WHITE
@@ -94,7 +98,6 @@ private suspend fun loadMarkerIcon(
         canvas.drawText(userName.take(1).uppercase(), size / 2f, (size / 2f) + 20f, paint)
     }
     canvas.restore()
-
 
     val emoji = when (parameter) {
         WeatherParameter.RAIN -> "💧"
@@ -108,15 +111,12 @@ private suspend fun loadMarkerIcon(
     paint.style = Paint.Style.FILL
     paint.color = android.graphics.Color.BLACK
     canvas.drawCircle(size * 0.82f, size * 0.82f, 28f, paint)
-
-    val textPaint = Paint().apply {
-        textSize = 40f
-        textAlign = Paint.Align.CENTER
-    }
+    val textPaint = Paint().apply { textSize = 40f; textAlign = Paint.Align.CENTER }
     canvas.drawText(emoji, size * 0.82f, size * 0.87f, textPaint)
 
     return BitmapDescriptorFactory.fromBitmap(output)
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,43 +125,42 @@ fun MapScreen(
     onOpenReport: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val isSerbian = LocalIsSerbian.current
     val context = LocalContext.current
     val reports by viewModel.localReports.collectAsState()
     val myLoc by viewModel.userLocation.collectAsState()
     val myLatLng = myLoc?.let { LatLng(it.latitude, it.longitude) }
-
 
     val markerIcons = remember { mutableStateMapOf<String, BitmapDescriptor>() }
 
     var authorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var typeFilter by rememberSaveable { mutableStateOf<WeatherParameter?>(null) }
     var radiusKm by rememberSaveable { mutableFloatStateOf(3.0f) }
-    var timeWindowHours by rememberSaveable { mutableFloatStateOf(24.0f) }
+    var radiusDraft by rememberSaveable { mutableStateOf(radiusKm) }
+    var radiusDragging by remember { mutableStateOf(false) }
+    var timeWindowHours by rememberSaveable { mutableIntStateOf(24) }
+
+    LaunchedEffect(radiusKm) { if (!radiusDragging) radiusDraft = radiusKm }
 
     val backgroundGradient = Brush.verticalGradient(listOf(Color(0xFF2193b0), Color(0xFF6dd5ed)))
 
     val filtered = remember(reports, authorFilter, typeFilter, timeWindowHours, myLatLng, radiusKm) {
         val now = System.currentTimeMillis()
         val radiusMeters = radiusKm * 1000f
+        val timeLimitMs = timeWindowHours.toLong() * 3600000L
 
         reports.filter { r ->
             val matchesAuthor = authorFilter == null || r.userName == authorFilter
             val matchesType = typeFilter == null || r.parametar == typeFilter
             val diffToStart = r.startTime - now
-            val timeLimitMs = timeWindowHours.toLong() * 3600000L
-
             val hasStartedAndActive = diffToStart <= 0 && (r.startTime + r.durationHours * 3600000L) > now
             val startsInFutureWithinWindow = diffToStart in 1..timeLimitMs
-
             val isTimeMatch = hasStartedAndActive || startsInFutureWithinWindow
-            val isNear = myLatLng?.let {
-                distanceMeters(it, LatLng(r.latitude, r.longitude)) <= radiusMeters
-            } ?: true
+            val isNear = myLatLng?.let { distanceMeters(it, LatLng(r.latitude, r.longitude)) <= radiusMeters } ?: true
 
             matchesAuthor && matchesType && isTimeMatch && isNear
         }
     }
-
 
     LaunchedEffect(filtered) {
         filtered.forEach { r ->
@@ -182,12 +181,17 @@ fun MapScreen(
         }
     }
 
+    suspend fun zoomToRadius(center: LatLng, km: Float) {
+        val bounds = boundsForRadius(center, km.toDouble() * 1000.0)
+        cameraState.animate(CameraUpdateFactory.newLatLngBounds(bounds, 80))
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(backgroundGradient)) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Mapa reportova", fontWeight = FontWeight.Black, color = Color.White) },
+                    title = { Text(t(isSerbian, "Mapa izveštaja", "Report Map"), fontWeight = FontWeight.Black, color = Color.White) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
@@ -197,7 +201,7 @@ fun MapScreen(
                         IconButton(onClick = {
                             myLatLng?.let { cameraState.position = CameraPosition.fromLatLngZoom(it, 13f) }
                         }) {
-                            Icon(Icons.Default.MyLocation, null, tint = Color.White)
+                            Icon(Icons.Default.MyLocation, contentDescription = t(isSerbian, "Moja lokacija", "My Location"), tint = Color.White)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -205,14 +209,17 @@ fun MapScreen(
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+
                 FilterPanel(
+                    isSerbian = isSerbian,
                     reports = reports,
                     authorFilter = authorFilter,
                     onAuthorChange = { authorFilter = it },
                     typeFilter = typeFilter,
                     onTypeChange = { typeFilter = it },
-                    radiusKm = radiusKm,
-                    onRadiusKmChange = { radiusKm = it },
+                    radiusKm = radiusDraft,
+                    onRadiusKmChange = { v -> radiusDragging = true; radiusDraft = v },
+                    onRadiusFinish = { radiusDragging = false; radiusKm = radiusDraft },
                     timeWindowHours = timeWindowHours,
                     onTimeWindowChange = { timeWindowHours = it },
                     resultsCount = filtered.size
@@ -229,15 +236,16 @@ fun MapScreen(
                         properties = MapProperties(isMyLocationEnabled = true),
                         uiSettings = MapUiSettings(zoomControlsEnabled = false)
                     ) {
+                        myLatLng?.let { me ->
+                            Circle(center = me, radius = radiusKm.toDouble() * 1000.0, strokeColor = Color.White, fillColor = Color.White.copy(0.1f))
+                        }
                         filtered.forEach { r ->
                             Marker(
                                 state = rememberMarkerState(position = LatLng(r.latitude, r.longitude)),
                                 title = r.userName,
+                                snippet = r.parametar.label(isSerbian),
                                 icon = markerIcons[r.id] ?: BitmapDescriptorFactory.defaultMarker(),
-                                onClick = {
-                                    onOpenReport(r.id)
-                                    true
-                                }
+                                onClick = { onOpenReport(r.id); true }
                             )
                         }
                     }
@@ -245,11 +253,16 @@ fun MapScreen(
             }
         }
     }
-}
 
+    LaunchedEffect(radiusKm, myLatLng) {
+        val me = myLatLng ?: return@LaunchedEffect
+        zoomToRadius(me, radiusKm)
+    }
+}
 
 @Composable
 private fun FilterPanel(
+    isSerbian: Boolean,
     reports: List<LocalWeatherReport>,
     authorFilter: String?,
     onAuthorChange: (String?) -> Unit,
@@ -257,11 +270,13 @@ private fun FilterPanel(
     onTypeChange: (WeatherParameter?) -> Unit,
     radiusKm: Float,
     onRadiusKmChange: (Float) -> Unit,
-    timeWindowHours: Float,
-    onTimeWindowChange: (Float) -> Unit,
+    onRadiusFinish: () -> Unit,
+    timeWindowHours: Int,
+    onTimeWindowChange: (Int) -> Unit,
     resultsCount: Int
 ) {
     val authors = remember(reports) { reports.map { it.userName }.distinct().filter { it.isNotBlank() }.sorted() }
+    val allLabel = t(isSerbian, "Svi", "All")
 
     Card(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
@@ -270,26 +285,31 @@ private fun FilterPanel(
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Filteri", fontWeight = FontWeight.Bold, color = Color.White)
+                Text(t(isSerbian, "Filteri", "Filters"), fontWeight = FontWeight.Bold, color = Color.White)
                 Spacer(Modifier.weight(1f))
-                Text("Rezultati: $resultsCount", color = Color.White.copy(0.7f), fontSize = 12.sp)
+                Text("${t(isSerbian, "Rezultati", "Results")}: $resultsCount", color = Color.White.copy(0.7f), fontSize = 12.sp)
             }
 
             Spacer(Modifier.height(8.dp))
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DropdownFilter(
-                    label = "Autor",
-                    value = authorFilter ?: "Svi",
-                    items = listOf("Svi") + authors,
-                    onSelect = { v -> onAuthorChange(if (v == "Svi") null else v) },
+                    label = t(isSerbian, "Autor", "Author"),
+                    value = authorFilter ?: allLabel,
+                    items = listOf(allLabel) + authors,
+                    onSelect = { v -> onAuthorChange(if (v == allLabel) null else v) },
                     modifier = Modifier.weight(1f)
                 )
+
+                val typeItems = listOf(allLabel) + WeatherParameter.entries.map { it.label(isSerbian) }
                 DropdownFilter(
-                    label = "Tip",
-                    value = typeFilter?.name ?: "Svi",
-                    items = listOf("Svi") + WeatherParameter.entries.map { it.name },
-                    onSelect = { v -> onTypeChange(if (v == "Svi") null else WeatherParameter.valueOf(v)) },
+                    label = t(isSerbian, "Tip", "Type"),
+                    value = typeFilter?.label(isSerbian) ?: allLabel,
+                    items = typeItems,
+                    onSelect = { v ->
+                        val selected = WeatherParameter.entries.find { it.label(isSerbian) == v }
+                        onTypeChange(selected)
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -297,20 +317,19 @@ private fun FilterPanel(
             Spacer(Modifier.height(12.dp))
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                CustomSlider(
-                    label = "Radijus",
+                RadiusSlider(
+                    label = t(isSerbian, "Radijus", "Radius"),
                     value = radiusKm,
                     onValueChange = onRadiusKmChange,
-                    valueRange = 1f..10f,
+                    onValueChangeFinished = onRadiusFinish,
+                    valueRange = 0f..10f,
                     unit = "km",
                     modifier = Modifier.weight(1f)
                 )
-                CustomSlider(
-                    label = "Prikaži narednih",
+                HoursSlider(
+                    label = t(isSerbian, "Prikaži narednih", "Show next"),
                     value = timeWindowHours,
                     onValueChange = onTimeWindowChange,
-                    valueRange = 1f..24f,
-                    unit = "h",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -319,20 +338,42 @@ private fun FilterPanel(
 }
 
 @Composable
-private fun CustomSlider(
+private fun RadiusSlider(
     label: String,
     value: Float,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     unit: String,
     modifier: Modifier = Modifier
 ) {
     Column(modifier) {
-        Text("$label: ${"%.1f".format(value)} $unit", color = Color.White, fontSize = 10.sp)
+        val displayValue = if (value == 0f) "0" else "%.1f".format(value)
+        Text("$label: $displayValue $unit", color = Color.White, fontSize = 10.sp)
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
+        )
+    }
+}
+
+@Composable
+private fun HoursSlider(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier) {
+        Text("$label: $value h", color = Color.White, fontSize = 10.sp)
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { f -> onValueChange(f.roundToInt().coerceIn(1, 24)) },
+            valueRange = 1f..24f,
+            steps = 22,
             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
         )
     }
@@ -348,11 +389,7 @@ private fun DropdownFilter(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = modifier
-    ) {
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = value,
             onValueChange = {},

@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("kotlin-kapt")
+    alias(libs.plugins.ksp)
     id("com.google.gms.google-services")
 }
 
@@ -47,9 +47,10 @@ android {
 }
 
 dependencies {
+    //LA    NGUAGE
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
     //ICONS
     implementation("androidx.compose.material:material-icons-extended")
-
     //FIREBASE
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
@@ -57,6 +58,9 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.storage)
+    implementation("com.google.android.gms:play-services-auth:21.5.1")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    implementation("com.google.firebase:firebase-appcheck-debug")
 
     //NETWORK
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
@@ -66,7 +70,10 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.compose.ui.text)
     implementation(libs.androidx.compose.foundation)
-    kapt("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.firebase.dataconnect)
+    implementation(libs.androidx.material3)
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
 

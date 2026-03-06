@@ -37,7 +37,7 @@ class UserRepository {
         usersRef.document(uid).set(user).await()
     }
 
-    private suspend fun uploadProfilePhoto(uid: String, uri: Uri): String {
+    suspend fun uploadProfilePhoto(uid: String, uri: Uri): String {
         val ref = storageRef.child("profilePhotos/$uid.jpg")
         ref.putFile(uri).await()
         return ref.downloadUrl.await().toString()

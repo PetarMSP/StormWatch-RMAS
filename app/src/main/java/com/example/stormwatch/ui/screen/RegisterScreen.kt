@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.stormwatch.data.repository.AuthResult
+import com.example.stormwatch.ui.navigation.Routes
 import com.example.stormwatch.util.createImageUri
 import com.example.stormwatch.viewmodel.AuthViewModel
 
@@ -62,8 +63,19 @@ fun RegisterScreen(navController: NavController, authViewModel: AuthViewModel) {
     }
 
     LaunchedEffect(authState) {
+        if (authState is AuthResult.LinkSent) {
+            navController.navigate(Routes.verification(email)) {
+                popUpTo(Routes.REGISTER) {
+                    inclusive = true
+                }
+            }
+        }
         if (authState is AuthResult.Success) {
-            navController.navigate("home") { popUpTo("register") { inclusive = true } }
+            navController.navigate(Routes.HOME) {
+                popUpTo(Routes.START) {
+                    inclusive = true
+                }
+            }
         }
     }
 
@@ -177,14 +189,22 @@ fun RegisterScreen(navController: NavController, authViewModel: AuthViewModel) {
                         Spacer(Modifier.height(24.dp))
 
                         Button(
-                            onClick = { authViewModel.register(username, email, password, photoUri) },
-                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            onClick = {
+
+                                authViewModel.sendVerificationLink(username, email, password, photoUri, context)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.White,
                                 contentColor = Color(0xFF2193b0)
                             ),
-                            enabled = authState !is AuthResult.Loading && username.isNotBlank() && email.isNotBlank() && password.isNotBlank()
+                            enabled = authState !is AuthResult.Loading &&
+                                    username.isNotBlank() &&
+                                    email.isNotBlank() &&
+                                    password.isNotBlank()
                         ) {
                             if (authState is AuthResult.Loading) {
                                 CircularProgressIndicator(
@@ -193,7 +213,7 @@ fun RegisterScreen(navController: NavController, authViewModel: AuthViewModel) {
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Text("REGISTRUJ SE", fontWeight = FontWeight.Bold)
+                                Text("POŠALJI VERIFIKACIONI LINK", fontWeight = FontWeight.Bold)
                             }
                         }
                     }

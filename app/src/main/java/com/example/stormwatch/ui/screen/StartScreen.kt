@@ -26,7 +26,6 @@ fun StartScreen(navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo ili Ikona
             Surface(
                 modifier = Modifier.size(120.dp),
                 shape = CircleShape,

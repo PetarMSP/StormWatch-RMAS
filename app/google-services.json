@@ -12,7 +12,16 @@
           "package_name": "com.example.stormwatch"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "231790321972-dr7u2b9j2gd8m903m6m55goa5pi6llkj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.stormwatch",
+            "certificate_hash": "1f1d03efab83acbccf6159d304da351f416476f5"
+          }
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAmZ6kfsym3Wtn8QMnkHzr8RxrVvh3OPus"

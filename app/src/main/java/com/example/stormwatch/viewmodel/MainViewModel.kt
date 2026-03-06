@@ -1,21 +1,28 @@
 package com.example.stormwatch.viewmodel
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stormwatch.data.model.LocalWeatherReport
-import com.example.stormwatch.data.model.floorToHour
 import com.example.stormwatch.data.model.WeatherParameter
-import com.example.stormwatch.data.model.domain.WeatherResult
 import com.example.stormwatch.data.model.domain.UserProfile
-import com.example.stormwatch.data.repository.WeatherRepository
-import com.example.stormwatch.data.repository.UserRepository
+import com.example.stormwatch.data.model.domain.WeatherResult
+import com.example.stormwatch.data.model.floorToHour
 import com.example.stormwatch.data.remote.RetrofitInstance
 import com.example.stormwatch.data.repository.AuthRepository
 import com.example.stormwatch.data.repository.LocalReportRepository
+import com.example.stormwatch.data.repository.UserRepository
+import com.example.stormwatch.data.repository.WeatherRepository
+import com.example.stormwatch.ui.screen.distanceMeters
+import com.example.stormwatch.util.showStormNotification
+import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -37,19 +44,26 @@ class MainViewModel : ViewModel() {
     }
 
     // Auth
-    private val _isLoggedIn = MutableStateFlow(authRepository.currentUserId() != null)
-    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
 
     fun currentUserId(): String? = authRepository.currentUserId()
 
 
-    val currentUsername: StateFlow<String> = userRepository.getUserFlow(currentUserId() ?: "")
-        .map { profile -> profile?.username ?: "" }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = ""
-        )
+    val currentUserProfile =
+        authRepository.currentUserIdFlow()
+            .flatMapLatest { uid ->
+                if (uid.isNullOrBlank()) flowOf(null)
+                else userRepository.getUserFlow(uid)
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.Eagerly,
+                initialValue = null
+            )
+
+    val currentUsername: StateFlow<String> =
+        currentUserProfile
+            .map { it?.username.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     // Weather Api
     private val _weather = MutableStateFlow<WeatherResult?>(null)
@@ -96,7 +110,6 @@ class MainViewModel : ViewModel() {
             _selectedReport.value = r
 
             if (r != null) {
-
                 _selectedReportOwner.value = userRepository.getUserByUsername(r.userName)
             }
         }
@@ -197,12 +210,14 @@ class MainViewModel : ViewModel() {
                 userPointMap[report.userName] = userPointMap.getOrDefault(report.userName, 0) + points
             }
 
-
             userPointMap.forEach { (username, points) ->
                 val userProfile = userRepository.getUserByUsername(username)
                 userProfile?.let {
                     db.collection("users").document(it.uid)
-                        .update("weeklyScore", com.google.firebase.firestore.FieldValue.increment(points.toLong()))
+                        .update(
+                            "weeklyScore",
+                            com.google.firebase.firestore.FieldValue.increment(points.toLong())
+                        )
                         .await()
                 }
             }
@@ -242,10 +257,39 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun logout() {
+    private var lastCheckedReportId: String? = null
+
+    fun startObservingNewReports(context: Context) {
         viewModelScope.launch {
-            authRepository.logout()
-            _isLoggedIn.value = false
+            localReports.collect { reports ->
+                val newestReport = reports.maxByOrNull { it.startTime } ?: return@collect
+                val myLoc = userLocation.value ?: return@collect
+
+                if (newestReport.id != lastCheckedReportId && newestReport.userName != currentUsername.value) {
+                    val reportLatLng = LatLng(newestReport.latitude, newestReport.longitude)
+                    val myLatLng = LatLng(myLoc.latitude, myLoc.longitude)
+
+                    val distance = distanceMeters(myLatLng, reportLatLng)
+
+                    if (distance <= 5000) {
+                        lastCheckedReportId = newestReport.id
+
+                        showStormNotification(
+                            context = context,
+                            message = "Novi izveštaj: ${newestReport.parametar.name} u vašoj blizini!",
+                            reportId = newestReport.id
+                        )
+                    }
+                }
+            }
         }
     }
+    fun updateMyProfilePhoto(uri: Uri) {
+        viewModelScope.launch {
+            val uid = currentUserId() ?: return@launch
+            val url = userRepository.uploadProfilePhoto(uid, uri)
+            userRepository.updatePhoto(uid, url)
+        }
+    }
+
 }

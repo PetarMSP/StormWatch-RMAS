@@ -17,7 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.stormwatch.LocalIsSerbian
 import com.example.stormwatch.data.model.WeatherParameter
+import com.example.stormwatch.data.model.label
+import com.example.stormwatch.t
 import com.example.stormwatch.viewmodel.MainViewModel
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -34,6 +37,8 @@ fun LocalReportScreen(
     val owner by viewModel.selectedReportOwner.collectAsState()
     val currentUsername by viewModel.currentUsername.collectAsState()
 
+    val isSerbian = LocalIsSerbian.current
+
     LaunchedEffect(reportId) {
         viewModel.openReport(reportId)
     }
@@ -45,7 +50,7 @@ fun LocalReportScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Detalji Izveštaja", color = Color.White, fontWeight = FontWeight.Bold) },
+                    title = { Text(t(isSerbian, "Detalji Izveštaja", "Report Details"), color = Color.White, fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.ArrowBack, null, tint = Color.White)
@@ -55,8 +60,6 @@ fun LocalReportScreen(
                 )
             }
         ) { padding ->
-            // FIX 1: Umesto return@Scaffold, koristimo AnimatedVisibility ili običan if/else
-            // ali držimo Box da Scaffold ne ostane "prazan" što nekad buni navigaciju
             val r = report
             if (r == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -69,7 +72,6 @@ fun LocalReportScreen(
                         .padding(horizontal = 20.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // 1. KORISNIK CARD
                     Surface(
                         color = Color.White.copy(alpha = 0.15f),
                         shape = RoundedCornerShape(24.dp),
@@ -81,15 +83,12 @@ fun LocalReportScreen(
                                 shape = CircleShape,
                                 color = Color.White.copy(0.2f)
                             ) {
-                                // FIX 2: Izbacili SubcomposeAsyncImage, koristimo običan AsyncImage
                                 coil.compose.AsyncImage(
                                     model = r.authorPhotoUrl,
                                     contentDescription = null,
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                    error = com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_RED.let { null }
+                                    modifier = Modifier.fillMaxSize()
                                 )
-                                // Fallback slovo ako nema slike
                                 if (r.authorPhotoUrl.isEmpty()) {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Text(r.userName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
@@ -101,7 +100,7 @@ fun LocalReportScreen(
 
                             Column(Modifier.weight(1f)) {
                                 Text(text = r.userName, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                                Text("Weekly score: ${owner?.weeklyScore ?: 0}", color = Color.White.copy(0.7f), fontSize = 14.sp)
+                                Text("${t(isSerbian, "Nedeljni rezultat:", "Weekly score:")} ${owner?.weeklyScore ?: 0}", color = Color.White.copy(0.7f), fontSize = 14.sp)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TrophyItem("🥇", owner?.goldTrophies ?: 0)
@@ -113,20 +112,9 @@ fun LocalReportScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // 2. MAPA
                     val pos = remember(r.latitude, r.longitude) { LatLng(r.latitude, r.longitude) }
                     val cameraState = rememberCameraPositionState {
                         position = CameraPosition.fromLatLngZoom(pos, 15f)
-                    }
-
-// FIX: Pravilno definisanje UI podešavanja
-                    val uiSettings = remember {
-                        MapUiSettings(
-                            zoomControlsEnabled = false,
-                            scrollGesturesEnabled = false,
-                            tiltGesturesEnabled = false,
-                            rotationGesturesEnabled = false // Ovde je bilo 'rotate', ispravno je 'rotation'
-                        )
                     }
 
                     Card(
@@ -138,31 +126,42 @@ fun LocalReportScreen(
                             modifier = Modifier.fillMaxSize(),
                             cameraPositionState = cameraState,
                             properties = MapProperties(isMyLocationEnabled = false),
-                            uiSettings = uiSettings // Koristimo zapamćena podešavanja
+                            uiSettings = MapUiSettings(zoomControlsEnabled = false, scrollGesturesEnabled = false)
                         ) {
-                            // FIX: Koristimo rememberMarkerState umesto MarkerState direktno
                             Marker(
                                 state = rememberMarkerState(position = pos),
-                                title = r.parametar.name
+                                title = r.parametar.label(isSerbian)
                             )
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
 
-                    // 3. DETALJI REPORTA
                     Surface(
                         color = Color.White.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(24.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(20.dp)) {
+                            val prikazniParametar = if (r.parametar == WeatherParameter.OTHER && !r.customParameterName.isNullOrBlank()) {
+                                r.customParameterName
+                            } else {
+                                r.parametar.label(isSerbian)
+                            }
+
                             Text(
-                                text = if(r.parametar == WeatherParameter.OTHER) r.customParameterName ?: "Ostalo" else r.parametar.name,
+                                text = prikazniParametar,
                                 color = Color.Yellow, fontSize = 22.sp, fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(r.description, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp)
+
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "${t(isSerbian, "Trajanje:", "Duration:")} ${r.durationHours}h",
+                                color = Color.White.copy(0.7f), fontSize = 14.sp
+                            )
+
                             Spacer(Modifier.height(20.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("👍 ${r.likes}", color = Color(0xFF43A047), fontWeight = FontWeight.Bold)
@@ -174,8 +173,6 @@ fun LocalReportScreen(
 
                     Spacer(Modifier.height(24.dp))
 
-                    // 4. ACTIONS
-                    // FIX 4: Upoređujemo tačno po username-u
                     val isOwner = r.userName == currentUsername
 
                     if (isOwner) {
@@ -188,18 +185,20 @@ fun LocalReportScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4B2B).copy(alpha = 0.8f)),
                             shape = RoundedCornerShape(14.dp)
                         ) {
-                            Text("OBRIŠI IZVEŠTAJ", fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(t(isSerbian, "OBRIŠI IZVEŠTAJ", "DELETE REPORT"), fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     } else {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             ActionButton(
-                                text = "Korisno", icon = "👍",
+                                text = t(isSerbian, "Korisno", "Helpful"),
+                                icon = "👍",
                                 color = Color(0xFF43A047),
                                 modifier = Modifier.weight(1f)
                             ) { viewModel.likeReport(r.id) }
 
                             ActionButton(
-                                text = "Netačno", icon = "👎",
+                                text = t(isSerbian, "Netačno", "Inaccurate"),
+                                icon = "👎",
                                 color = Color(0xFFD32F2F),
                                 modifier = Modifier.weight(1f)
                             ) { viewModel.dislikeReport(r.id) }
@@ -211,7 +210,6 @@ fun LocalReportScreen(
         }
     }
 }
-
 
 @Composable
 fun TrophyItem(emoji: String, count: Int) {

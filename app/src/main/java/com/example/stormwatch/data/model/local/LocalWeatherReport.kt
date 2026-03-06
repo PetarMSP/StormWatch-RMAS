@@ -36,7 +36,15 @@ enum class WeatherParameter {
     FOG,
     OTHER
 }
-
+fun WeatherParameter.label(isSerbian: Boolean): String = when (this) {
+    WeatherParameter.RAIN -> if (isSerbian) "Kiša" else "Rain"
+    WeatherParameter.TEMPERATURE -> if (isSerbian) "Temperatura" else "Temperature"
+    WeatherParameter.WIND -> if (isSerbian) "Vetar" else "Wind"
+    WeatherParameter.SNOW -> if (isSerbian) "Sneg" else "Snow"
+    WeatherParameter.ICE -> if (isSerbian) "Led" else "Ice"
+    WeatherParameter.FOG -> if (isSerbian) "Magla" else "Fog"
+    WeatherParameter.OTHER -> if (isSerbian) "Ostalo" else "Other"
+}
 fun floorToHour(ts: Long): Long {
     val cal = Calendar.getInstance().apply { timeInMillis = ts }
     cal.set(Calendar.MINUTE, 0)
